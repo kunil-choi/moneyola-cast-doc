@@ -1,6 +1,7 @@
 # youtube_fetcher.py
 from googleapiclient.discovery import build
 from datetime import datetime, timezone
+from typing import Optional
 import os
 import requests
 import anthropic
@@ -78,7 +79,7 @@ def get_videos_this_month():
     return videos
 
 
-def image_url_to_base64(url: str) -> str | None:
+def image_url_to_base64(url: str) -> Optional[str]:
     """이미지 URL을 base64로 변환합니다."""
     try:
         res = requests.get(url, timeout=10)
@@ -94,16 +95,20 @@ def get_first_frame_url(video_id: str) -> str:
     return f"https://img.youtube.com/vi/{video_id}/0.jpg"
 
 
-def extract_name_with_claude(title: str, thumbnail_b64: str | None, frame_b64: str | None) -> str:
+def extract_name_with_claude(
+    title: str,
+    thumbnail_b64: Optional[str],
+    frame_b64: Optional[str]
+) -> str:
     """
     Claude Vision으로 썸네일/첫프레임 이미지와 제목을 분석해서 출연자 이름을 추출합니다.
     """
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-        # 이미지 콘텐츠 구성
         content = []
 
+        # 썸네일 이미지 추가
         if thumbnail_b64:
             content.append({
                 "type": "image",
@@ -118,6 +123,7 @@ def extract_name_with_claude(title: str, thumbnail_b64: str | None, frame_b64: s
                 "text": "위 이미지는 유튜브 영상의 썸네일입니다."
             })
 
+        # 첫 프레임 이미지 추가
         if frame_b64:
             content.append({
                 "type": "image",
@@ -131,6 +137,10 @@ def extract_name_with_claude(title: str, thumbnail_b64: str | None, frame_b64: s
                 "type": "text",
                 "text": "위 이미지는 유튜브 영상의 첫 번째 프레임입니다."
             })
+
+        # 이미지가 하나도 없으면 제목만으로 분석
+        if not thumbnail_b64 and not frame_b64:
+            print(f"    ⚠️ 이미지 없음 — 제목만으로 분석합니다.")
 
         content.append({
             "type": "text",
@@ -150,7 +160,7 @@ def extract_name_with_claude(title: str, thumbnail_b64: str | None, frame_b64: s
         })
 
         message = client.messages.create(
-            model="claude-opus-4-5",
+            model="claude-sonnet-4-6",
             max_tokens=100,
             messages=[{"role": "user", "content": content}]
         )
@@ -174,29 +184,25 @@ def extract_name_with_claude(title: str, thumbnail_b64: str | None, frame_b64: s
 
 def extract_guests_from_videos(videos):
     """
-    각 영상별로 3단계로 출연자 이름을 추출합니다.
-    1단계: 썸네일 이미지 → Claude Vision
-    2단계: 첫 프레임 이미지 → Claude Vision
-    3단계: 제목 텍스트 → Claude 분석
+    각 영상별로 썸네일 + 첫프레임 + 제목을 Claude Vision으로 분석해서 출연자를 추출합니다.
     """
     guest_list = []
 
     for i, video in enumerate(videos):
         print(f"  [{i+1}/{len(videos)}] {video['date']} | {video['title'][:45]}...")
 
-        # ── 썸네일 이미지 다운로드
+        # 썸네일 이미지 다운로드
         thumbnail_b64 = None
         if video["thumbnail_url"]:
-            print(f"    📸 썸네일 분석 중...")
+            print(f"    📸 썸네일 다운로드 중...")
             thumbnail_b64 = image_url_to_base64(video["thumbnail_url"])
 
-        # ── 첫 프레임 이미지 다운로드
-        frame_b64 = None
+        # 첫 프레임 이미지 다운로드
+        print(f"    🎬 첫 프레임 다운로드 중...")
         first_frame_url = get_first_frame_url(video["video_id"])
-        print(f"    🎬 첫 프레임 분석 중...")
         frame_b64 = image_url_to_base64(first_frame_url)
 
-        # ── Claude Vision 통합 분석
+        # Claude Vision 통합 분석
         print(f"    🤖 Claude 분석 중...")
         guest_name = extract_name_with_claude(
             title=video["title"],
