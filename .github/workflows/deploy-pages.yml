@@ -29,7 +29,7 @@ jobs:
         run: |
           python3 -c "
           import os
-          token = os.environ['PAT_TOKEN']
+          token = os.environ['PAT_TOKEN'].strip()
           with open('index.html', 'r') as f:
               content = f.read()
           content = content.replace('%%PAT_TOKEN%%', token)
@@ -40,7 +40,7 @@ jobs:
       - name: 📄 Pages 설정
         uses: actions/configure-pages@v4
         with:
-          enablement: true    # ← 이 줄 추가! Pages 자동 활성화
+          enablement: true
 
       - name: 📦 업로드
         uses: actions/upload-pages-artifact@v3
