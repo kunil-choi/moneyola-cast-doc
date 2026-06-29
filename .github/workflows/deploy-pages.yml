@@ -23,7 +23,6 @@ jobs:
       - name: 📥 체크아웃
         uses: actions/checkout@v4
 
-      # PAT 토큰을 index.html에 주입 (%%PAT_TOKEN%% 치환)
       - name: 🔑 토큰 주입
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -40,6 +39,8 @@ jobs:
 
       - name: 📄 Pages 설정
         uses: actions/configure-pages@v4
+        with:
+          enablement: true    # ← 이 줄 추가! Pages 자동 활성화
 
       - name: 📦 업로드
         uses: actions/upload-pages-artifact@v3
