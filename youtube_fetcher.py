@@ -3,12 +3,16 @@ from googleapiclient.discovery import build
 from datetime import datetime, timezone
 import os
 import re
+import requests
+import anthropic
+import base64
 from dotenv import load_dotenv
 
 load_dotenv()
 
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 
 def get_videos_this_month():
@@ -41,14 +45,30 @@ def get_videos_this_month():
 
         for item in response.get("items", []):
             snippet = item["snippet"]
-            pub_date = snippet["publishedAt"][:10]
-            month_day = pub_date[5:].replace("-", "/")
+            pub_date = snippet["publishedAt"][:10]  # "YYYY-MM-DD"
+            month_day = pub_date[5:].replace("-", "/")  # "MM/DD"
+
+            # 요일 계산
+            dt = datetime.strptime(pub_date, "%Y-%m-%d")
+            weekdays = ["월", "화", "수", "목", "금", "토", "일"]
+            weekday = weekdays[dt.weekday()]
+            date_with_day = f"{month_day} ({weekday})"
+
+            # 썸네일 URL (maxres > high > medium 순으로 최고화질 선택)
+            thumbnails = snippet.get("thumbnails", {})
+            thumbnail_url = (
+                thumbnails.get("maxres", {}).get("url")
+                or thumbnails.get("high", {}).get("url")
+                or thumbnails.get("medium", {}).get("url")
+                or ""
+            )
 
             videos.append({
-                "date": month_day,
+                "date": date_with_day,
                 "title": snippet["title"],
                 "description": snippet.get("description", ""),
                 "video_id": item["id"]["videoId"],
+                "thumbnail_url": thumbnail_url,
             })
 
         next_page_token = response.get("nextPageToken")
@@ -59,110 +79,137 @@ def get_videos_this_month():
     return videos
 
 
+def image_url_to_base64(url: str) -> str | None:
+    """이미지 URL을 base64로 변환합니다."""
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            return base64.standard_b64encode(res.content).decode("utf-8")
+    except Exception:
+        pass
+    return None
+
+
+def get_first_frame_url(video_id: str) -> str:
+    """
+    YouTube 영상의 첫 프레임 이미지 URL을 반환합니다.
+    YouTube는 자동으로 여러 프레임 썸네일을 제공합니다.
+    """
+    # YouTube 자동 생성 프레임 이미지 (0번 = 첫 장면)
+    return f"https://img.youtube.com/vi/{video_id}/0.jpg"
+
+
+def extract_name_with_claude(title: str, thumbnail_b64: str | None, frame_b64: str | None) -> str:
+    """
+    Claude Vision으로 썸네일/첫프레임 이미지와 제목을 분석해서 출연자 이름을 추출합니다.
+    """
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    # 이미지 콘텐츠 구성
+    content = []
+
+    if thumbnail_b64:
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": thumbnail_b64,
+            }
+        })
+        content.append({
+            "type": "text",
+            "text": "위 이미지는 유튜브 영상의 썸네일입니다."
+        })
+
+    if frame_b64:
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": frame_b64,
+            }
+        })
+        content.append({
+            "type": "text",
+            "text": "위 이미지는 유튜브 영상의 첫 번째 프레임입니다."
+        })
+
+    content.append({
+        "type": "text",
+        "text": f"""영상 제목: {title}
+
+위 정보(썸네일 이미지, 첫 프레임 이미지, 영상 제목)를 보고 이 영상에 출연한 게스트(외부 출연자)의 한국어 이름을 추출해주세요.
+
+규칙:
+1. 반드시 실제 출연자(게스트)의 이름만 추출하세요.
+2. KBS 머니올라 채널의 고정 진행자나 채널 자체 코너명은 제외하세요.
+3. 이름이 영어로 표기되어 있으면 한국어 이름으로 변환하세요.
+4. 출연자가 여러 명이면 쉼표로 구분해서 모두 나열하세요.
+5. 출연자를 찾을 수 없으면 반드시 "없음"이라고만 답하세요.
+6. 이름 외에 다른 설명은 절대 포함하지 마세요.
+
+답변 형식: 이름만 (예: 홍길동 또는 홍길동, 김철수 또는 없음)"""
+    })
+
+    try:
+        message = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=100,
+            messages=[{"role": "user", "content": content}]
+        )
+        result = message.content[0].text.strip()
+        # "없음" 또는 빈값 처리
+        if result in ["없음", "없음.", "None", "N/A", ""]:
+            return ""
+        return result
+    except Exception as e:
+        print(f"  ⚠️ Claude API 오류: {e}")
+        return ""
+
+
 def extract_guests_from_videos(videos):
     """
-    머니올라 영상 제목에서 출연자 이름을 추출합니다.
-
-    머니올라 제목 패턴 예시:
-      한국어: [저자 강환국], [유신익 박사], [염블리의 비밀노트], ㅣ염승환
-      영어:   [Author Kang Hwan-kook], [Dr. Shin-ik Yoo], [Yeomvely]
+    각 영상별로 3단계로 출연자 이름을 추출합니다.
+    1단계: 썸네일 이미지 → Claude Vision
+    2단계: 첫 프레임 이미지 → Claude Vision
+    3단계: 제목만으로 Claude 텍스트 분석
     """
-
-    # ── 영문 이름 → 한국어 이름 매핑 테이블
-    name_map = {
-        # 영문 → 한국어
-        "kang hwan": "강환국",
-        "kang hwan-kook": "강환국",
-        "hwankook": "강환국",
-        "shin-ik yoo": "유신익",
-        "shin ik yoo": "유신익",
-        "yoo shin": "유신익",
-        "yeomvely": "염승환",
-        "yeom-vely": "염승환",
-        "yeom vely": "염승환",
-        "byung-seo jeon": "전병서",
-        "byungseo jeon": "전병서",
-        "jeon byung": "전병서",
-        "woong-hwan yoo": "유웅환",
-        "yoo woong": "유웅환",
-        "seo dae-il": "서대일",
-        "dae-il seo": "서대일",
-        "seong-jin oh": "오성진",
-        "oh seong": "오성진",
-        "gun-young oh": "오건영",
-        "oh gun": "오건영",
-        "park hyun-wook": "박현욱",
-        "hyun-wook park": "박현욱",
-        "yoon sung-ho": "윤성호",
-        "sung-ho yoon": "윤성호",
-        "seonwoo": "선우",
-    }
-
-    # ── 한국어 이름 추출 패턴
-    korean_patterns = [
-        # [저자 강환국], [강환국 저자] 형태
-        r"\[(?:저자|작가|교수|박사|대표|위원|기자|연구원|이사|본부장|소장|원장|PD|애널리스트)?\s*([가-힣]{2,5})\s*(?:저자|작가|교수|박사|대표|위원|기자|연구원|이사|본부장|소장|원장|PD|애널리스트)?\]",
-        # ㅣ염승환, | 염승환 형태
-        r"[ㅣ|]\s*([가-힣]{2,4})\s*(?:교수|박사|대표|위원|기자|연구원|팀장|이사|본부장|소장|원장|작가|PD)?",
-        # 출연: 홍길동
-        r"출연\s*[:：]\s*([가-힣]{2,4})",
-        # 영상 제목 맨 끝 대괄호 안 한글 이름
-        r"\[([가-힣]{2,4})\s*(?:풀버전|full|1부|2부|3부)?\]",
-        # 직책 앞에 오는 한글 이름
-        r"([가-힣]{2,4})\s*(?:교수|박사|대표|위원|기자|연구원|팀장|이사|본부장|소장|원장|작가)",
-    ]
-
-    # ── 영문 이름 추출 패턴
-    english_patterns = [
-        # [Author Kang Hwan-kook], [Dr. Shin-ik Yoo] 형태
-        r"\[(?:Author|Dr\.?|Prof\.?|CEO|Director|Analyst)?\s*([A-Za-z][a-z]+(?:[\s\-][A-Za-z][a-z]+)+)\]",
-        # Part 1/2 with Author Name
-        r"(?:with|by)\s+(?:Author\s+|Blogger\s+)?([A-Za-z][a-z]+(?:\s+[A-Za-z][a-z\-]+)+)",
-        # 영문 이름 + 직책
-        r"([A-Za-z][a-z]+(?:[\s\-][A-Za-z][a-z]+)+)\s+(?:CEO|CFO|CTO|Professor|Doctor|Analyst|Director)",
-    ]
-
     guest_list = []
 
-    for video in videos:
-        title = video["title"]
-        desc = video["description"][:300]
-        combined = title + " " + desc
-        found_guest = ""
+    for i, video in enumerate(videos):
+        print(f"  [{i+1}/{len(videos)}] {video['date']} | {video['title'][:45]}...")
 
-        # 1차: 한국어 패턴으로 추출
-        for pattern in korean_patterns:
-            match = re.search(pattern, combined)
-            if match:
-                candidate = match.group(1).strip()
-                # 노이즈 필터링 (코너명, 일반명사 제외)
-                noise_words = {
-                    "머니올라", "비욘드", "스페셜", "풀버전", "월간", "주간",
-                    "염블리", "오건영", "전체", "최신", "요약", "하이라이트",
-                    "비밀노트", "사파지존", "키나락스"
-                }
-                if candidate not in noise_words and len(candidate) >= 2:
-                    found_guest = candidate
-                    break
+        # ── 1단계: 썸네일 이미지 분석
+        thumbnail_b64 = None
+        if video["thumbnail_url"]:
+            print(f"    📸 썸네일 분석 중...")
+            thumbnail_b64 = image_url_to_base64(video["thumbnail_url"])
 
-        # 2차: 영문 패턴으로 추출 후 한국어로 변환
-        if not found_guest:
-            for pattern in english_patterns:
-                match = re.search(pattern, combined, re.IGNORECASE)
-                if match:
-                    eng_name = match.group(1).strip().lower()
-                    # 매핑 테이블에서 찾기
-                    for key, kor_name in name_map.items():
-                        if key in eng_name or eng_name in key:
-                            found_guest = kor_name
-                            break
-                if found_guest:
-                    break
+        # ── 2단계: 첫 프레임 이미지 분석
+        frame_b64 = None
+        first_frame_url = get_first_frame_url(video["video_id"])
+        print(f"    🎬 첫 프레임 분석 중...")
+        frame_b64 = image_url_to_base64(first_frame_url)
+
+        # ── Claude Vision으로 통합 분석
+        print(f"    🤖 Claude 분석 중...")
+        guest_name = extract_name_with_claude(
+            title=video["title"],
+            thumbnail_b64=thumbnail_b64,
+            frame_b64=frame_b64,
+        )
+
+        if guest_name:
+            print(f"    ✅ 출연자: {guest_name}")
+        else:
+            print(f"    ⚠️  출연자 미확인")
 
         guest_list.append({
             "date": video["date"],
             "title": video["title"],
-            "guest": found_guest,
+            "guest": guest_name,
         })
 
     return guest_list
