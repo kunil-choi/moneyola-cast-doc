@@ -18,21 +18,23 @@ def main():
 
     print(f"📹 총 {len(videos)}개 영상 발견\n")
     for v in videos:
-        print(f"  [{v['date']}] {v['title']}")
+        print(f"  [{v['date']}] {v['title'][:50]}")
 
-    print("\n👤 출연자 추출 중...")
+    print("\n👤 출연자 추출 중... (썸네일 + 첫프레임 + 제목 분석)\n")
     guest_data = extract_guests_from_videos(videos)
 
-    print("\n📋 추출된 출연자 목록:")
+    print("\n📋 최종 출연자 목록:")
+    print("-" * 60)
     for g in guest_data:
         guest_name = g['guest'] if g['guest'] else "⚠️ 미확인"
-        print(f"  [{g['date']}] {guest_name}  ←  {g['title'][:40]}")
+        print(f"  [{g['date']}] {guest_name:<10} ← {g['title'][:35]}")
+    print("-" * 60)
 
     print("\n📄 Word 문서 생성 중...")
     filepath = generate_doc(guest_data)
 
     print(f"\n✅ 완료! 생성된 파일: {filepath}")
-    print("💡 출연자가 '미확인'으로 표시된 항목은 문서에서 직접 수정해주세요.")
+    print("💡 미확인 항목은 문서에서 직접 수정해주세요.")
 
 
 if __name__ == "__main__":
