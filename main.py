@@ -26,7 +26,7 @@ def main():
     print("\n📋 최종 출연자 목록:")
     print("-" * 60)
     for g in guest_data:
-        guest_name = g['guest'] if g['guest'] else "⚠️ 미확인"
+        guest_name = g['guest'] if g['guest'] else "⚠️ 인식실패"
         print(f"  [{g['date']}] {guest_name:<10} ← {g['title'][:35]}")
     print("-" * 60)
 
@@ -34,7 +34,7 @@ def main():
     filepath = generate_doc(guest_data)
 
     print(f"\n✅ 완료! 생성된 파일: {filepath}")
-    print("💡 미확인 항목은 문서에서 직접 수정해주세요.")
+    print("💡 빨간색 '인식실패' 항목은 문서에서 직접 수정해주세요.")
 
 
 if __name__ == "__main__":
