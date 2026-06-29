@@ -258,7 +258,7 @@
 
   // ── 완료 폴링
   async function pollForArtifact() {
-    const maxTry = 24; // 최대 2분 대기 (5초 × 24)
+    const maxTry = 24; // 최대 3분 대기 (5초 × 36)
     let tried = 0;
 
     const interval = setInterval(async () => {
