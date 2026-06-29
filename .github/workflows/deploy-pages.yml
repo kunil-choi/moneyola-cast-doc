@@ -25,8 +25,18 @@ jobs:
 
       # PAT 토큰을 index.html에 주입 (%%PAT_TOKEN%% 치환)
       - name: 🔑 토큰 주입
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          sed -i 's|%%PAT_TOKEN%%|${{ secrets.PAT_TOKEN }}|g' index.html
+          python3 -c "
+          import os
+          token = os.environ['PAT_TOKEN']
+          with open('index.html', 'r') as f:
+              content = f.read()
+          content = content.replace('%%PAT_TOKEN%%', token)
+          with open('index.html', 'w') as f:
+              f.write(content)
+          "
 
       - name: 📄 Pages 설정
         uses: actions/configure-pages@v4
