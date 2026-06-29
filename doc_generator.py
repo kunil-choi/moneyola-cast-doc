@@ -70,7 +70,7 @@ def generate_doc(guest_data: list, output_dir: str = "output") -> str:
     table.style = "Table Grid"
 
     # 열 너비
-    col_widths = [Cm(2.8), Cm(3.0), Cm(5.0), Cm(2.8), Cm(4.5)]
+    col_widths = [Cm(3.2), Cm(3.0), Cm(5.0), Cm(2.8), Cm(4.5)]
     for row in table.rows:
         for i, cell in enumerate(row.cells):
             cell.width = col_widths[i]
@@ -116,7 +116,7 @@ def generate_doc(guest_data: list, output_dir: str = "output") -> str:
             run.font.size = Pt(10)
             run.font.name = "맑은 고딕"
 
-            # 성명 칸(j==1)이 "인식실패"이면 빨간색으로 표시
+            # 성명 칸이 "인식실패"이면 빨간색 굵게
             if j == 1 and is_failed:
                 run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
                 run.font.bold = True
