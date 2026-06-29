@@ -1,0 +1,46 @@
+# .github/workflows/generate-doc.yml
+
+name: 출연료 집행 의뢰서 생성
+
+on:
+  # ── 웹에서 수동으로 실행할 수 있도록 설정
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '실행 확인 (yes 입력)'
+        required: true
+        default: 'yes'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 레포 코드 체크아웃
+      - name: 📥 레포 체크아웃
+        uses: actions/checkout@v4
+
+      # 2. Python 환경 설정
+      - name: 🐍 Python 3.11 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. 패키지 설치
+      - name: 📦 패키지 설치
+        run: pip install -r requirements.txt
+
+      # 4. 환경변수 설정 후 실행
+      - name: 🎬 의뢰서 생성 실행
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+        run: python main.py
+
+      # 5. 생성된 문서를 Artifacts로 업로드 (다운로드 가능하게)
+      - name: 📄 문서 업로드 (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: 출연료집행의뢰서
+          path: output/*.docx
+          retention-days: 30
