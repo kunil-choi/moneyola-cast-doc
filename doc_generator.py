@@ -1,6 +1,6 @@
 # doc_generator.py
 from docx import Document
-from docx.shared import Pt, Cm
+from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
@@ -88,16 +88,26 @@ def generate_doc(guest_data: list, output_dir: str = "output") -> str:
         run.font.size = Pt(10)
         run.font.name = "맑은 고딕"
 
-    # ── 데이터 행
+    # ── 데이터 행 작성
     for i in range(data_rows):
         row = table.rows[i + 1]
         if i < len(guest_data):
             entry = guest_data[i]
-            row_data = [entry.get("date", ""), entry.get("guest", ""), "", "", ""]
+            guest = entry.get("guest", "")
+            date = entry.get("date", "")
+
+            # 날짜는 있는데 이름을 못 찾은 경우 "인식실패" 표시
+            is_failed = False
+            if not guest and date:
+                guest = "인식실패"
+                is_failed = True
+
+            row_data = [date, guest, "", "", ""]
         else:
             row_data = ["", "", "", "", ""]
+            is_failed = False
 
-        for cell, value in zip(row.cells, row_data):
+        for j, (cell, value) in enumerate(zip(row.cells, row_data)):
             set_cell_border(cell)
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
             para = cell.paragraphs[0]
@@ -105,6 +115,11 @@ def generate_doc(guest_data: list, output_dir: str = "output") -> str:
             run = para.add_run(value)
             run.font.size = Pt(10)
             run.font.name = "맑은 고딕"
+
+            # 성명 칸(j==1)이 "인식실패"이면 빨간색으로 표시
+            if j == 1 and is_failed:
+                run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+                run.font.bold = True
 
     doc.add_paragraph("")
 
