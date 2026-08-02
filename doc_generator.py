@@ -33,9 +33,16 @@ def set_cell_bg(cell, color_hex="BDD7EE"):
     tcPr.append(shd)
 
 
-def generate_doc(guest_data: list, output_dir: str = "output") -> str:
+def generate_doc(
+    guest_data: list,
+    output_dir: str = "output",
+    year: int = None,
+    month: int = None,
+) -> str:
     """
     출연료 집행 의뢰서 Word 문서를 생성합니다.
+    year/month를 지정하면 해당 연/월 기준으로 문서를 생성하고,
+    지정하지 않으면 현재 연/월을 사용합니다.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -49,7 +56,7 @@ def generate_doc(guest_data: list, output_dir: str = "output") -> str:
     section.right_margin = Cm(2)
 
     # ── 제목
-    now = datetime.now()
+    now = datetime(year, month, 1) if year and month else datetime.now()
     title_text = f"{now.month}월 제작비(출연료) 집행 의뢰서"
     title = doc.add_paragraph(title_text)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER

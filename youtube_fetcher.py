@@ -15,17 +15,25 @@ CHANNEL_ID = os.getenv("CHANNEL_ID")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 
-def get_videos_this_month():
+def get_videos_this_month(year: Optional[int] = None, month: Optional[int] = None):
     """
-    이번 달 1일부터 오늘까지 업로드된 영상 목록을 가져옵니다.
+    지정한 연/월의 1일부터 말일까지 업로드된 영상 목록을 가져옵니다.
+    year/month를 지정하지 않으면 이번 달(1일~오늘)을 조회합니다.
     """
     youtube = build("youtube", "v3", developerKey=API_KEY)
 
-    today = datetime.now(timezone.utc)
-    first_of_month = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now(timezone.utc)
+    year = year or now.year
+    month = month or now.month
+
+    first_of_month = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        first_of_next_month = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        first_of_next_month = datetime(year, month + 1, 1, tzinfo=timezone.utc)
 
     published_after = first_of_month.strftime("%Y-%m-%dT%H:%M:%SZ")
-    published_before = today.strftime("%Y-%m-%dT%H:%M:%SZ")
+    published_before = first_of_next_month.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     videos = []
     next_page_token = None

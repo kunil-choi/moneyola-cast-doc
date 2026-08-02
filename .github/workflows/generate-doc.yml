@@ -9,6 +9,14 @@ on:
         description: '실행 확인 (yes 입력)'
         required: true
         default: 'yes'
+      year:
+        description: '조회 연도 (비워두면 올해)'
+        required: false
+        default: ''
+      month:
+        description: '조회 월 (비워두면 이번 달)'
+        required: false
+        default: ''
 
 jobs:
   generate:
@@ -31,6 +39,8 @@ jobs:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TARGET_YEAR: ${{ github.event.inputs.year }}
+          TARGET_MONTH: ${{ github.event.inputs.month }}
         run: python main.py
 
       - name: 📄 문서 업로드 (Artifacts)
