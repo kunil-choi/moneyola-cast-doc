@@ -3,6 +3,7 @@ from googleapiclient.discovery import build
 from datetime import datetime, timezone
 from typing import Optional
 import os
+import re
 import requests
 import anthropic
 import base64
@@ -13,6 +14,48 @@ load_dotenv()
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+
+# 출연료 지급 기준: 쇼츠(짧은 영상)는 출연료 지급 대상이 아니므로 제외한다.
+# 통상 출연료 지급 영상은 10분 이상이라는 점을 기준으로 삼는다.
+MIN_DURATION_SECONDS = 10 * 60
+
+_ISO8601_DURATION_RE = re.compile(
+    r"P(?:\d+D)?T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?"
+)
+
+
+def _parse_iso8601_duration(duration: str) -> int:
+    """YouTube API가 반환하는 ISO 8601 duration(예: 'PT10M30S')을 초 단위로 변환합니다."""
+    match = _ISO8601_DURATION_RE.match(duration or "")
+    if not match:
+        return 0
+    hours = int(match.group("hours") or 0)
+    minutes = int(match.group("minutes") or 0)
+    seconds = int(match.group("seconds") or 0)
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _filter_out_shorts(youtube, videos):
+    """영상 길이를 조회해서 10분 미만인 쇼츠 콘텐츠를 제외합니다."""
+    durations = {}
+    video_ids = [v["video_id"] for v in videos]
+
+    for i in range(0, len(video_ids), 50):
+        batch_ids = video_ids[i:i + 50]
+        request = youtube.videos().list(
+            part="contentDetails",
+            id=",".join(batch_ids),
+        )
+        response = request.execute()
+        for item in response.get("items", []):
+            durations[item["id"]] = _parse_iso8601_duration(
+                item.get("contentDetails", {}).get("duration", "")
+            )
+
+    return [
+        v for v in videos
+        if durations.get(v["video_id"], 0) >= MIN_DURATION_SECONDS
+    ]
 
 
 def get_videos_this_month(year: Optional[int] = None, month: Optional[int] = None):
@@ -84,6 +127,7 @@ def get_videos_this_month(year: Optional[int] = None, month: Optional[int] = Non
             break
 
     videos.sort(key=lambda x: x["date"])
+    videos = _filter_out_shorts(youtube, videos)
     return videos
 
 
